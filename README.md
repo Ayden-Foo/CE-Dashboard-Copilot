@@ -1,0 +1,279 @@
+# CE Board — Azure DevOps escalation dashboard
+
+A small local dashboard for triaging Azure DevOps work items and Customer
+Escalations: list them, open one, edit it, comment with @mentions, search the
+whole project, and get a desktop toast when someone replies, changes the
+state, or reassigns an item.
+
+Everything runs on your own machine. There is no server to host, no database,
+and no Personal Access Token.
+
+## Install
+
+1. Copy this whole folder anywhere on your PC (Desktop, Documents, a network
+   share — it does not matter).
+2. Double-click **`Install.cmd`**.
+3. Confirm your Azure DevOps organisation and project when prompted
+   (defaults: `ni` / `DevCentral`).
+4. The board opens. Click **Sign in**, enter the code shown on the Microsoft
+   page, and you are done.
+
+You now have a **CE Board** shortcut on your Desktop and in the Start Menu, and
+the board starts automatically whenever you sign in to Windows.
+
+**You do not need to install anything first — not even Python.** Setup uses a
+Python already on your PC if there is one; otherwise it offers to download the
+official portable build from python.org (about 11 MB) into a `runtime` folder
+beside these files. That copy is private to this tool: no admin rights, no
+system-wide install, no PATH or registry changes, and deleting the folder
+removes it completely.
+
+If your network blocks python.org, ask whoever shared this tool for the
+**offline** package, which already contains the `runtime` folder.
+
+Requirements: Windows 10 or 11. Nothing else — no `pip install`, no Node.js,
+no Azure CLI, no admin rights, no Personal Access Token.
+
+## Daily use
+
+Open the **CE Board** shortcut.
+
+| What you want | How |
+| --- | --- |
+| See your open items | Default view |
+| Open one | Click the row |
+| Change State / Assignee / Title | Expand the row, edit, **Save** |
+| Change the severity | Expand the row, pick from the severity list, **Save** |
+| See the severity at a glance | A coloured badge next to the state, when the item has one |
+| Comment | Expand the row, type in the comment box, **Save** |
+| Read the discussion | Newest comment first; it briefly highlights so you spot it right away |
+| Add a screenshot to a comment | Paste it straight into the comment box; a thumbnail appears, **Save** posts it |
+| Fix a comment you already posted | Click **edit** on your own comment in Discussion, change it, **Save comment** |
+| Delete a comment you posted | Click **delete** on your own comment; it asks first |
+| Fix the case description | Click **edit** next to Description, change it, **Save description** |
+| Get Copilot help triaging a case | Expand the row; the **Current case Copilot** panel opens automatically |
+| Use Copilot Chat | In **Current case Copilot**, click **Copy Copilot prompt**, then paste it into Copilot |
+| Bold, italic, underline | The buttons above the box, or `Ctrl+B` / `Ctrl+I` / `Ctrl+U` |
+| Highlight a phrase | Select it and click the yellow **A**; click again to clear it |
+| Make a list | The **&bull; list** or **1. list** button |
+| Indent a line | `Tab`, or the arrow buttons; `Shift+Tab` goes back |
+| Add a table | Copy cells in Excel or a table in Outlook and paste into the comment box |
+| Change a table | Click a cell and type; use **+ row**, **- row**, **+ column**, **- column** |
+| Take a table out | Click **remove table** under it, then Save |
+| Resize the comment box | Drag its bottom-right corner; the size is remembered |
+| Tag a colleague | Type `@` plus 2+ letters and pick from the list |
+| Find an old case | Type a keyword or the ID, tick *include closed* |
+| Search someone else's items | Set the scope dropdown to *All of this project* |
+| See cases you follow | Set the scope dropdown to *Followed by me* |
+| Know when someone replies | A Windows toast appears; the item is listed in a banner |
+| Know when a state changes | Toast plus a `state` entry in the banner |
+| Know when something is assigned to you | Toast plus an `assigned` entry in the banner |
+| See a screenshot | Images in the description and comments render inline |
+| View an image full size | Click it; press `Esc` or click the backdrop to close |
+| Download an attachment | Expand the row, **Download** next to the file |
+| Add a file | Drag it onto the drop area, or click *browse* |
+| Link a related case | Pick the link type, enter the work item ID, **Add link** |
+| Link a web page | Choose *Hyperlink (URL)*, paste the URL, **Add link** |
+| Detach a file or link | **Remove** on its row (asks first) |
+| Start the board | The **CE Board** icon on your Desktop or Start Menu |
+| Use it in a normal browser tab instead | Set `CE_BOARD_WINDOW=0` before launching |
+
+Screenshots are the whole point of most CEs, so they render in place. Azure
+DevOps keeps attachments behind an authenticated URL that a browser cannot fetch
+on its own, so the board re-requests each image with your token and serves it
+locally. Attached files that are not images appear as links.
+
+## Copilot panel
+
+Opening a work item shows a floating **Current case Copilot** panel with an
+instant local triage: unassigned work, stale items, missing information, a
+suggested next action and a draft status update. It makes no network calls and
+uses no AI credits.
+
+Click **Copy Copilot prompt** to put the case prompt (title, state, description
+and recent comments) on your clipboard, then paste it into the Copilot you
+prefer -- GitHub Copilot Chat or Microsoft 365 Copilot -- for model-backed
+analysis. The board never sends case data to any AI service itself.
+
+## Sign-in and security
+
+Sign-in uses the standard Microsoft device-code flow. You get a code, you enter
+it on `microsoft.com/devicelogin`, and Microsoft issues a token. This tool never
+sees your password.
+
+- The token is cached in **your own** user profile at `~/.azdo_cli_token.json`,
+  never inside this folder, so copying the folder never carries credentials.
+  It is protected by your Windows user-profile permissions: another standard
+  user cannot read it, but anything running **as you** — or a local
+  administrator — can. Treat it like a password file.
+- The server listens on `127.0.0.1` only, so nothing on the network can reach
+  it, and stray web pages cannot drive it (every API call needs a per-launch
+  nonce that a cross-origin page cannot obtain).
+- The page itself lives at an unguessable per-launch URL, published to
+  `~/.azdo_ce_board_url` for the shortcut to read. Browse to
+  `http://127.0.0.1:8787/` directly and you get a 404 — that is deliberate, so
+  another program on the machine cannot simply read the page and lift the
+  nonce from it. Note that a process running under **your own** account can
+  still read that file; the boundary here is between user accounts, not
+  between programs you run.
+- Attachments and inline images are fetched with your token by the board, and
+  only from this organisation's Azure DevOps host. Redirects are not followed,
+  so your token cannot be forwarded elsewhere.
+- Comments show **newest first**, and the newest one briefly highlights when
+  you open a case, so you land on the latest update without scrolling.
+- @mentions display the same way regardless of which client wrote them --
+  Azure DevOps writes an @mention as an anchor to nowhere in particular, or as
+  a plain styled span, depending on where it was typed. Either way it is shown
+  as the same highlighted mention chip here.
+- A handful of safe formatting properties -- bold, italic, underline, colour,
+  highlight -- are kept even when Azure DevOps writes them as an inline style
+  rather than a tag, which is common in text pasted from Outlook or Teams.
+  Anything that could load a resource or run code, like a background image,
+  is stripped regardless.
+- The comment editor has the same @mention, screenshot paste and table paste
+  as the new-comment box.
+- While editing, any screenshots and tables already in that comment are shown
+  underneath, so you can see what you are keeping. Click a thumbnail to
+  enlarge it. Screenshots are carried over as they are.
+- **Tables can be edited in place.** Click a cell and type to change it, and
+  use the links under the table to add or delete the row or column of the cell
+  you clicked, or to remove the table. The page never sends table markup: it
+  asks the server for the change and redraws what comes back, so an edited
+  table is still markup the server built. Cells you do not touch keep their
+  formatting, and a table you open and save without changing comes out exactly
+  as it went in. Nothing is written to Azure DevOps until you press Save.
+- Typing in a cell replaces just that cell, so any bold or colour it had is
+  lost -- as in the text box, cells are edited as plain text. Merged cells are
+  preserved, but a row or column added next to them is a plain one.
+- Pasted tables are stripped to plain rows and cells on the server: every
+  attribute except `colspan`/`rowspan` is discarded, and anything outside the
+  table is dropped. Excel's `<style>`/`<script>` blocks never reach the work
+  item. A comment can only embed a table the server itself built.
+- You can only edit or delete your **own** comments; Azure DevOps enforces this
+  and the tool checks it too, before it changes anything. Editing keeps any
+  images and tables already in that comment.
+- Deleting a comment cannot be undone from the board, so it asks first. The
+  comment is removed from the Azure DevOps discussion.
+- The description editor works like the comment editor: @mentions, pasted
+  screenshots, pasted tables, and the images already there are shown and kept.
+  On a Bug that uses Repro Steps instead of Description, it edits that field,
+  so saving cannot blank the wrong one.
+- Only Title, State, Assigned To, Tags, Severity, Description and Repro
+  Steps can be written by the board. Any other field name is rejected by the
+  server. Azure DevOps records the edit, so the change is auditable.
+- The severity is shown on the row itself, beside the state, so you can scan
+  the list without opening anything. Items whose type has no severity, or that
+  have not been given one, simply show nothing.
+- The severity control appears only when the work item type actually has one,
+  and both its label and its choices come from Azure DevOps rather than from
+  this tool. A type can define more than one such field and use only one of
+  them -- a Customer Escalation defines *Escalation Severity* but is filled in
+  with *Escalation Priority* -- so the board shows whichever field the item
+  actually carries a value in, under that field's own name. Before saving, the
+  server re-checks against the item's own type that the field exists and the
+  value is one it allows, so a value the project would reject never gets sent.
+  Leave it blank to clear it.
+- Pasted screenshots are uploaded to the work item as normal Azure DevOps
+  attachments and embedded in the comment. Nothing is written to local disk.
+  A comment can only embed an image this tool itself uploaded in the same
+  session.
+- New-comment pop-ups include a short excerpt of the comment. Windows keeps
+  notification history, so that excerpt persists in Windows' own store; turn
+  polling off with `CE_BOARD_POLL=0` if that is not acceptable for the content
+  you handle.
+- The board opens in **its own window** -- no address bar, no tabs, its own
+  taskbar icon -- by asking a Chromium browser already on the machine for an
+  app window. It matches whichever of Edge or Chrome you already have open,
+  then your Windows default browser, then Edge, then Chrome -- whichever is
+  actually installed. Nothing extra is installed. If none is found it falls
+  back to your default browser in a normal tab.
+- Editing keeps the **layout**: line breaks, blank lines between paragraphs
+  and bulleted or numbered lists survive the round trip, and editing the same
+  text twice does not shift it.
+- The box is a **formatted editor**: bold, italic, underline, highlight,
+  bulleted and numbered lists, and indenting with `Tab`. What you see in the
+  box is what gets saved.
+- Only that short list of formatting is kept, because it is what Azure DevOps
+  renders reliably. Highlight is one fixed yellow rather than a colour picker.
+  Anything else you can get into the box -- a colour, a font, a link, a size --
+  is dropped on the way out, and its text kept.
+- **Pasting always arrives as plain text** (unless it is an image or a table).
+  That is deliberate: markup from another application never enters the page,
+  so it can never reach a work item.
+- The formatting you send is checked on the server against a short allowlist
+  of tags, and **every attribute is discarded**; a highlight is redrawn in the
+  board's own colour rather than the page's. So even a page that had been
+  tampered with could not put styling, a script or a link into a work item.
+- The Desktop shortcut runs the ordinary, Microsoft-signed `pythonw.exe`
+  that is already on the machine, and wears its own icon (drawn by
+  `scripts/make_icon.py`, no image library needed). It is deliberately not
+  a standalone `.exe`: endpoint protection on locked-down machines kills a
+  renamed copy of a signed interpreter, and a bundled one-file build would
+  be unsigned. A shortcut avoids both problems.
+- You can only see and change what your Azure DevOps account already permits.
+  All work item rules are still enforced by Azure DevOps.
+
+Sign out with `python scripts\azdo_auth.py --sign-out`.
+
+## Configuration
+
+Set these before launching if you need something other than the defaults:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `AZDO_ORG` | `ni` | Azure DevOps organisation |
+| `AZDO_PROJECT` | `DevCentral` | Project |
+| `CE_BOARD_PORT` | `8787` | Local port |
+| `CE_BOARD_POLL` | `180` | Seconds between checks for comments, state changes and reassignments |
+
+To change them permanently, re-run:
+
+```
+python scripts\install_autostart.py --org myorg --project MyProject --port 8900
+```
+
+## What it writes to your machine
+
+Useful if your team has to answer where escalation data ends up.
+
+| File | Contents |
+| --- | --- |
+| `~/.azdo_cli_token.json` | Your Azure DevOps access + refresh token. **Sensitive.** |
+| `~/.azdo_ce_board_url` | The board's per-launch URL (contains the nonce). |
+| `~/.azdo_ce_seen.json` | Comment IDs already notified, plus the last seen state and assignee per item, so a change can be detected. No comment text. |
+| `~/.azdo_ce_board.log` | Startup and error messages. No tokens, no comment text. |
+| `scripts\_ce_board_launch.cmd` | Your org/project/port. No credentials. |
+
+No work item text, no attachment, and no uploaded file is ever written to disk
+— uploads stream straight through to Azure DevOps. The one exception is the
+Windows notification history noted above.
+
+## Removing it
+
+```
+python scripts\install_autostart.py --uninstall
+```
+
+That removes the autostart entry and both shortcuts. Delete the folder,
+`~/.azdo_cli_token.json`, `~/.azdo_ce_board_url`, `~/.azdo_ce_seen.json` and
+`~/.azdo_ce_board.log` to remove every trace.
+
+## Troubleshooting
+
+**The board does not open.** Look at `%USERPROFILE%\.azdo_ce_board.log`.
+
+**`http://127.0.0.1:8787/` shows "Not found".** Expected — the board is at the
+secret URL in `~/.azdo_ce_board_url`. Use the shortcut, or open that URL.
+
+**Port already in use.** Something else has 8787; reinstall with `--port 8900`.
+
+**"Not signed in".** Your refresh token expired. Click **Sign in** again.
+
+**A State change is rejected.** Azure DevOps work item rules are enforced
+server-side; the exact reason is shown in the UI.
+
+## Using it from Copilot instead
+
+This folder is also a Copilot CLI skill. Drop it into your Copilot skills
+directory and ask questions like *"list my open CEs"* or *"triage my
+escalations"*. See `SKILL.md`.
