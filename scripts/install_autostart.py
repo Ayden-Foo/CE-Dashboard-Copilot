@@ -21,6 +21,8 @@ import make_icon
 TASK_NAME = "ADO CE Board"
 HERE = os.path.dirname(os.path.abspath(__file__))
 SERVER = os.path.join(HERE, "ce_server.py")
+if not os.path.exists(SERVER):
+    SERVER += "c"  # shared builds ship bytecode only
 LAUNCHER = os.path.join(HERE, "_ce_board_launch.cmd")
 STARTUP_DIR = os.path.join(os.environ.get("APPDATA", ""), "Microsoft", "Windows",
                            "Start Menu", "Programs", "Startup")
@@ -93,6 +95,8 @@ def uninstall():
 def make_shortcuts(port):
     """Desktop + Start Menu shortcuts so the board opens like any other app."""
     target = os.path.join(HERE, "open_board.py")
+    if not os.path.exists(target):
+        target += "c"
     # Its own icon if one can be drawn, otherwise the interpreter's. The
     # shortcut still launches the signed pythonw.exe: a renamed copy of that
     # binary is blocked by endpoint policy on locked-down machines.

@@ -2549,6 +2549,8 @@ function render() {
            title="Severity">${esc(w.severity)}</span>` : ""}
         ${w.project && w.project !== PROJECT ? `<span class="proj">${esc(w.project)}</span>` : ""}
         <span class="title">${esc(w.title)}</span>
+        <button class="sec" style="padding:2px 8px" title="Edit title"
+          onclick="event.stopPropagation();editTitle(${w.id})">&#9998; Edit title</button>
         <span class="who">${esc(w.assignedTo) || "unassigned"}${
           scopeUsed !== "created" && w.createdBy ? `<i>by ${esc(w.createdBy)}</i>` : ""}</span>
       </div>
@@ -2574,6 +2576,13 @@ function render() {
         </div>
       </div>
     </div>`).join("");
+}
+
+async function editTitle(id) {
+  const box = document.getElementById("e" + id);
+  if (!box.classList.contains("open")) await toggle(id, true);
+  const t = document.getElementById("t" + id);
+  if (t) { t.scrollIntoView({block: "center"}); t.focus(); t.select(); }
 }
 
 async function toggle(id, force) {

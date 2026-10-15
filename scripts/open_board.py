@@ -14,6 +14,8 @@ import webbrowser
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SERVER = os.path.join(HERE, "ce_server.py")
+if not os.path.exists(SERVER):
+    SERVER += "c"  # shared builds ship bytecode only
 PORT = int(os.environ.get("CE_BOARD_PORT", "8787"))
 PROBE = "http://127.0.0.1:{}/".format(PORT)
 URL_FILE = os.path.join(os.path.expanduser("~"), ".azdo_ce_board_url")
