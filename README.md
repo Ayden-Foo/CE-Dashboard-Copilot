@@ -8,6 +8,15 @@ state, or reassigns an item.
 Everything runs on your own machine. There is no server to host, no database,
 and no Personal Access Token.
 
+## Dashboard layout
+
+The dashboard uses blue-green accents. **Links** starts collapsed; click its
+heading to expand or minimize the link list and controls. Discussion has a
+larger scrollable area. The floating **Current case Copilot** panel stays hidden
+until you click its button, and stays closed while you browse cases.
+Title, State, Assigned to, and Priority appear immediately below the item header,
+before its description, attachments, links, and discussion.
+
 ## Install
 
 1. Copy this whole folder anywhere on your PC (Desktop, Documents, a network

@@ -2339,7 +2339,7 @@ PAGE = r"""<!doctype html>
  #aiPanel .acts{margin-top:10px;flex-wrap:wrap}
  #aiPanelToggle{position:fixed;right:16px;bottom:16px;z-index:14}
  .copied{color:#1a7f37;font-size:12px;margin-top:6px}
- @media (min-width:1500px){main{margin-left:calc((100vw - 1100px - 390px)/2)}}
+ @media (min-width:1500px){body.copilot-open main{margin-left:calc((100vw - 1100px - 390px)/2)}}
  @media (max-width:900px){#aiPanel{left:12px;right:12px;top:68px;width:auto}.row{flex-wrap:wrap}}
  .desc{white-space:pre-wrap;border-top:1px solid #d8dee4;padding-top:10px;margin-bottom:10px;max-height:220px;overflow:auto;color:#1f2328}
  .thread{border-top:1px solid #d8dee4;padding-top:10px;max-height:260px;overflow:auto}
@@ -2432,6 +2432,57 @@ PAGE = r"""<!doctype html>
  #app.hide{display:none}
  .code{font-family:ui-monospace,Consolas,monospace;font-size:30px;letter-spacing:4px;background:#f6f8fa;border:1px dashed #8c959f;border-radius:8px;padding:12px 18px;display:inline-block;margin:10px 0;user-select:all}
  .step{font-size:13px;color:#1f2328;margin:6px 0}
+
+ /* ---- visual polish layer ---- */
+ body{background:radial-gradient(1200px 500px at 10% -10%,#e0ecff 0,transparent 60%),radial-gradient(900px 400px at 100% 0,#d1fae5 0,transparent 55%),#f4f8fb;min-height:100vh;
+   font-family:"Segoe UI Variable","Segoe UI",system-ui,sans-serif;letter-spacing:.005em}
+ header{background:linear-gradient(110deg,#0f172a 0%,#075985 55%,#047857 100%);box-shadow:0 4px 18px rgba(7,89,133,.25);padding:16px 26px;position:sticky;top:0;z-index:10}
+ header h1{font-size:18px;font-weight:700;letter-spacing:.02em}
+ header h1:before{content:"\25C6";margin-right:9px;color:#93c5fd}
+ main{padding:26px 20px}
+ .card{border:1px solid rgba(148,163,184,.35);border-left:4px solid #94a3b8;border-radius:12px;box-shadow:0 1px 2px rgba(15,23,42,.05),0 6px 16px rgba(15,23,42,.04);
+   transition:transform .15s ease,box-shadow .15s ease;overflow:hidden}
+ .card:hover{transform:translateY(-2px);box-shadow:0 10px 26px rgba(30,58,138,.14)}
+ .card:has(.pill.New){border-left-color:#3b82f6}
+ .card:has(.pill.Active){border-left-color:#f59e0b}
+ .card:has(.pill.Implemented){border-left-color:#10b981}
+ .row{padding:14px 18px}
+ .row:hover{background:linear-gradient(90deg,#eff6ff,#fff)}
+ .id{background:#eff6ff;color:#1d4ed8;border-radius:8px;padding:2px 9px;min-width:0;text-align:center}
+ .title{font-weight:600;color:#0f172a}
+ .pill{font-weight:600;border-radius:999px;padding:3px 11px;letter-spacing:.02em;box-shadow:inset 0 0 0 1px rgba(0,0,0,.03)}
+ .New{background:#dbeafe;border-color:#93c5fd;color:#1e40af}
+ .Active{background:#fef3c7;border-color:#fcd34d;color:#92400e}
+ .Implemented{background:#d1fae5;border-color:#6ee7b7;color:#065f46}
+ .edit{background:linear-gradient(#f8fafc,#f1f5f9);border-top:1px solid rgba(148,163,184,.35)}
+ input,select,textarea{border-radius:8px;border-color:#cbd5e1;transition:border-color .15s,box-shadow .15s}
+ input:focus,select:focus,textarea:focus{outline:none;border-color:#0d9488;box-shadow:0 0 0 3px rgba(13,148,136,.2)}
+ button{background:linear-gradient(135deg,#0369a1,#047857);border-radius:9px;padding:8px 18px;font-weight:600;box-shadow:0 2px 8px rgba(7,89,133,.25);transition:transform .12s,box-shadow .12s,filter .12s}
+ button:hover:not(:disabled){transform:translateY(-1px);filter:brightness(1.08);box-shadow:0 6px 14px rgba(4,120,87,.3)}
+ button:active:not(:disabled){transform:translateY(0)}
+ button.sec{background:#fff;color:#334155;border:1px solid #cbd5e1;box-shadow:none}
+ button.sec:hover:not(:disabled){background:#f1f5f9;box-shadow:0 2px 8px rgba(15,23,42,.08)}
+ .rtb button{background:transparent;box-shadow:none;color:#1f2328}
+ .rtb button:hover:not(:disabled){transform:none;filter:none;box-shadow:none;background:#e2e8f0}
+ .bar{background:rgba(255,255,255,.75);backdrop-filter:blur(8px);border:1px solid rgba(148,163,184,.35);border-radius:14px;padding:10px 12px;box-shadow:0 4px 14px rgba(15,23,42,.05)}
+ .bar input[type=search]{border-radius:10px;padding:9px 13px}
+ .detail,.cm,.aiout{border-radius:10px}
+ #feed{border-radius:12px;box-shadow:0 6px 18px rgba(15,23,42,.08)}
+ #aiPanel{border-radius:16px;border-color:rgba(148,163,184,.4);box-shadow:0 24px 60px rgba(30,41,59,.28);backdrop-filter:blur(10px)}
+ #aiPanel header{background:linear-gradient(110deg,#e0f2fe,#ecfdf5);position:static;box-shadow:none;padding:12px 14px}
+ #aiPanel header h1:before{content:none}
+ .sev{border-radius:999px;font-weight:600}
+ .case-links{border:1px solid #cbd5e1;border-radius:10px;margin:12px 0;background:#fff}
+ .case-links summary{padding:10px 12px;cursor:pointer;color:#075985;font-weight:600}
+ .case-links summary:focus-visible{outline:2px solid #0d9488;outline-offset:2px}
+ .case-links .links-body{padding:0 12px 12px}
+ .thread{max-height:65vh;max-height:clamp(320px,65vh,900px)}
+ ::-webkit-scrollbar{width:10px;height:10px}
+ ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:8px;border:2px solid transparent;background-clip:padding-box}
+ ::-webkit-scrollbar-thumb:hover{background:#94a3b8;background-clip:padding-box;border:2px solid transparent}
+ .card{animation:rise .35s ease both}
+ @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+ @media (prefers-reduced-motion:reduce){.card{animation:none}.card:hover{transform:none}}
 </style></head><body>
 <header>
  <h1>My Azure DevOps work items</h1>
@@ -2555,7 +2606,6 @@ function render() {
           scopeUsed !== "created" && w.createdBy ? `<i>by ${esc(w.createdBy)}</i>` : ""}</span>
       </div>
       <div class="edit" id="e${w.id}">
-        <div class="detail" id="d${w.id}">Loading details...</div>
         <label>Title</label><input id="t${w.id}" value="${esc(w.title)}">
         <div class="grid">
           <div><label>State</label><select id="s${w.id}"></select></div>
@@ -2563,6 +2613,7 @@ function render() {
                <input id="a${w.id}" value="${esc(w.assignedTo)}"></div>
           <div id="sv${w.id}"></div>
         </div>
+        <div class="detail" id="d${w.id}" style="margin-top:14px">Loading details...</div>
         <label>Comment (added to Discussion) &mdash; type @ to tag someone,
           paste a screenshot to attach it
           <span class="chint">drag the corner to resize &middot;
@@ -2909,11 +2960,13 @@ async function copyAiPrompt(id) {
 }
 
 function openAiPanel() {
+  document.body.classList.add("copilot-open");
   document.getElementById("aiPanel").classList.remove("closed");
   document.getElementById("aiPanelToggle").style.display = "none";
 }
 
 function closeAiPanel() {
+  document.body.classList.remove("copilot-open");
   document.getElementById("aiPanel").classList.add("closed");
   document.getElementById("aiPanelToggle").style.display = "";
 }
@@ -2921,7 +2974,6 @@ function closeAiPanel() {
 async function selectAiCase(id, autoLocal) {
   currentAiId = id;
   const w = items.find(x => String(x.id) === String(id)) || {};
-  openAiPanel();
   document.getElementById("aiCase").textContent = w.id
     ? `#${w.id} ${w.title || ""}`
     : `#${id}`;
@@ -2958,6 +3010,7 @@ function copyAiPromptCurrent() {
 async function loadDetail(id) {
   const box = document.getElementById("d" + id);
   if (!box) return;
+  const linksOpen = !!box.querySelector(".case-links[open]");
   box.textContent = "Loading details...";
   try {
     const d = await api("/api/detail?id=" + id);
@@ -3017,7 +3070,9 @@ async function loadDetail(id) {
         <button class="link danger" onclick="unlink(${id}, ${JSON.stringify(l.url).replace(/"/g, "&quot;")}, 'link')">Remove</button></div>`;
     }).join("");
     const linksBlock =
-      `<div class="k">Links (${(d.links || []).length})</div>
+      `<details class="case-links"${linksOpen ? " open" : ""}>
+       <summary>Links (${(d.links || []).length})</summary>
+       <div class="links-body">
        <div class="files">${linkRows || '<span class="meta">No links.</span>'}</div>
        <div class="addlink">
          <select id="lk${id}">
@@ -3032,7 +3087,7 @@ async function loadDetail(id) {
          <input id="lv${id}" placeholder="Work item ID, or https://... for a hyperlink">
          <button class="sec" onclick="addLink(${id})">Add link</button>
          <span class="up" id="lm${id}"></span>
-       </div>`;
+       </div></div></details>`;
     box.innerHTML =
       `<div class="meta-grid">${meta.map(([k, v]) => `<span class="k">${k}</span><span>${v}</span>`).join("")}</div>` +
       `<div class="ai">
