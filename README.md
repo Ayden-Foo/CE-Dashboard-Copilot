@@ -16,6 +16,9 @@ larger scrollable area. The floating **Current case Copilot** panel stays hidden
 until you click its button, and stays closed while you browse cases.
 Title, State, Assigned to, and Priority appear immediately below the item header,
 before its description, attachments, links, and discussion.
+Check **Closed cases** to show only closed/terminal cases (Closed, Removed,
+or Done); uncheck it to show open cases. This is synchronized with **open only**
+and applies to both the default list and scoped searches.
 
 ## Install
 
@@ -286,3 +289,5 @@ server-side; the exact reason is shown in the UI.
 This folder is also a Copilot CLI skill. Drop it into your Copilot skills
 directory and ask questions like *"list my open CEs"* or *"triage my
 escalations"*. See `SKILL.md`.
+
+- **Reply tagging** - the comment box is pre-filled with @mentions of the newest comment's author and everyone it tagged (never yourself). Delete any you don't want.

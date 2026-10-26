@@ -214,7 +214,7 @@ def followed_ids(max_age=60):
     return ids
 
 
-def list_items(open_only=True, match="both", top=200):
+def list_items(open_only=True, match="both", top=200, closed_only=False):
     display = my_display_name()
     clauses = ["[System.CreatedBy] = @Me"]
     if display and match in ("contains", "both"):
@@ -224,7 +224,9 @@ def list_items(open_only=True, match="both", top=200):
         clauses = clauses[1:]
     where = ["[System.TeamProject] = '{}'".format(PROJECT.replace("'", "''")),
              "({})".format(" OR ".join(clauses))]
-    if open_only:
+    if closed_only:
+        where.append("[System.State] IN ('Closed', 'Removed', 'Done')")
+    elif open_only:
         where.append("[System.State] NOT IN ('Closed', 'Removed', 'Done')")
     wiql = ("SELECT [System.Id] FROM WorkItems WHERE {} "
             "ORDER BY [System.ChangedDate] DESC".format(" AND ".join(where)))
@@ -783,6 +785,23 @@ def _safe_href(url):
     return url if scheme in ("http", "https") else ""
 
 
+_MENTION_RE = re.compile(
+    r'<a\b[^>]*data-vss-mention="[^"]*?,\s*([0-9a-fA-F-]{36})"[^>]*>\s*@?([^<]+?)\s*</a>',
+    re.I)
+
+
+def comment_mentions(raw_html):
+    """People @mentioned in a comment's stored HTML, as {id, name}."""
+    seen, found = set(), []
+    for guid, name in _MENTION_RE.findall(raw_html or ""):
+        guid = guid.lower()
+        name = unescape(name).strip()
+        if name and guid not in seen:
+            seen.add(guid)
+            found.append({"id": guid, "name": name})
+    return found
+
+
 def item_detail(item_id):
     """Full record for one work item: fields, description and its comments."""
     item = call("{}/_apis/wit/workitems/{}?api-version={}&$expand=all".format(
@@ -802,6 +821,8 @@ def item_detail(item_id):
     comments = [{
         "id": c.get("id"),
         "author": (c.get("createdBy") or {}).get("displayName", ""),
+        "authorId": ((c.get("createdBy") or {}).get("id") or "").lower(),
+        "mentions": comment_mentions(c.get("text", "")),
         "at": c.get("createdDate", ""),
         "edited": bool(c.get("modifiedDate")
                        and c.get("modifiedDate") != c.get("createdDate")),
@@ -1532,7 +1553,8 @@ def _annotate_links(links):
             link["type"] = f.get("System.WorkItemType", "")
 
 
-def search_items(query="", include_closed=True, top=100, scope="created"):
+def search_items(query="", include_closed=True, top=100, scope="created",
+                 closed_only=False):
     """Search work items.
 
     scope: created (by me), assigned (to me), followed (by me) or all.
@@ -1545,6 +1567,8 @@ def search_items(query="", include_closed=True, top=100, scope="created"):
         except ApiError:
             return []
         f = item.get("fields", {})
+        if closed_only and f.get("System.State") not in ("Closed", "Removed", "Done"):
+            return []
         return [{
             "id": item.get("id"),
             "type": f.get("System.WorkItemType", ""),
@@ -1581,7 +1605,9 @@ def search_items(query="", include_closed=True, top=100, scope="created"):
         raise ApiError(400, "Unknown scope: {}".format(scope))
     if query:
         where.append("[System.Title] CONTAINS '{}'".format(query.replace("'", "''")))
-    if not include_closed:
+    if closed_only:
+        where.append("[System.State] IN ('Closed', 'Removed', 'Done')")
+    elif not include_closed:
         where.append("[System.State] NOT IN ('Closed', 'Removed', 'Done')")
     if scope == "all" and not query:
         raise ApiError(400, "Enter a search term or work item ID to search all "
@@ -2511,7 +2537,7 @@ PAGE = r"""<!doctype html>
      <option value="followed">Followed by me</option>
      <option value="all">All of this project</option>
    </select>
-   <label><input type="checkbox" id="incClosed"> include closed</label>
+   <label><input type="checkbox" id="incClosed"> Closed cases</label>
    <button class="sec" id="searchBtn">Search</button>
    <button class="sec" id="clearBtn">Clear</button>
  </div>
@@ -3007,6 +3033,28 @@ function copyAiPromptCurrent() {
   if (currentAiId) copyAiPrompt(currentAiId);
 }
 
+// Reply convenience: pre-tag the people in the newest comment (its author and
+// anyone it @mentioned), once per comment and only while the box is empty.
+const replyTagged = {};
+function suggestReplyTags(id, d) {
+  const latest = (d.comments || [])[0];
+  if (!latest || replyTagged[id] === latest.id) return;
+  const box = document.getElementById("c" + id);
+  if (!box || box.innerText.trim() || (picked[id] || []).length) return;
+  const mine = d.comments.find(c => c.mine);
+  const myName = mine ? mine.author : "";
+  const people = [];
+  const add = p => {
+    if (p.name && p.name !== myName && !people.some(x => x.id === p.id)) people.push(p);
+  };
+  if (!latest.mine) add({id: latest.authorId, name: latest.author});
+  (latest.mentions || []).forEach(add);
+  replyTagged[id] = latest.id;
+  if (!people.length) return;
+  box.textContent = people.map(p => "@" + p.name).join(" ") + " ";
+  picked[id] = people;
+}
+
 async function loadDetail(id) {
   const box = document.getElementById("d" + id);
   if (!box) return;
@@ -3020,6 +3068,7 @@ async function loadDetail(id) {
         `#${id} ${d.item.title || ""}`;
     }
     drawSeverity(id);
+    suggestReplyTags(id, d);
     const it = d.item, body = it.descriptionHtml || it.reproHtml || "";
     const meta = [["Created", `${esc(it.createdBy)} on ${esc((it.createdDate || "").slice(0, 10))}`],
                   ["Updated", esc((it.changedDate || "").slice(0, 16).replace("T", " "))],
@@ -3742,8 +3791,8 @@ async function load(quiet) {
     const scope = document.getElementById("scope").value;
     // "All of this project" is a search-only mode; there is no sane default list.
     const d = (q || scope !== "created")
-      ? await api(`/api/search?q=${encodeURIComponent(q)}&includeClosed=${inc}&scope=${scope}`)
-      : await api("/api/items?openOnly=" + (document.getElementById("openOnly").checked ? "1" : "0"));
+      ? await api(`/api/search?q=${encodeURIComponent(q)}&includeClosed=0&closedOnly=${inc}&scope=${scope}`)
+      : await api(`/api/items?openOnly=1&closedOnly=${inc}`);
     items = d.items; document.getElementById("who").textContent = d.user || "";
     scopeUsed = scope;
     render();
@@ -3769,15 +3818,20 @@ async function clearFeed() {
 }
 
 document.getElementById("refresh").onclick = () => load();
-document.getElementById("openOnly").onchange = () => load();
-document.getElementById("searchBtn").onclick = () => load();
-document.getElementById("scope").onchange = () => {
-  // "open only" only applies to the default created-by-me list.
-  document.getElementById("openOnly").disabled =
-    document.getElementById("scope").value !== "created";
+document.getElementById("openOnly").onchange = () => {
+  document.getElementById("incClosed").checked =
+    !document.getElementById("openOnly").checked;
   load();
 };
-document.getElementById("incClosed").onchange = () => load();
+document.getElementById("searchBtn").onclick = () => load();
+document.getElementById("scope").onchange = () => {
+  load();
+};
+document.getElementById("incClosed").onchange = () => {
+  document.getElementById("openOnly").checked =
+    !document.getElementById("incClosed").checked;
+  load();
+};
 document.getElementById("clearBtn").onclick = () => {
   document.getElementById("q").value = "";
   document.getElementById("scope").value = "created";
@@ -3952,7 +4006,9 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/api/items":
                 open_only = qs.get("openOnly", ["1"])[0] != "0"
                 return self._send(200, json.dumps({
-                    "items": list_items(open_only=open_only),
+                    "items": list_items(
+                        open_only=open_only,
+                        closed_only=qs.get("closedOnly", ["0"])[0] == "1"),
                     "user": my_display_name(),
                 }))
             if url.path == "/api/states":
@@ -3963,6 +4019,7 @@ class Handler(BaseHTTPRequestHandler):
                     "items": search_items(
                         qs.get("q", [""])[0],
                         include_closed=qs.get("includeClosed", ["1"])[0] != "0",
+                        closed_only=qs.get("closedOnly", ["0"])[0] == "1",
                         scope=qs.get("scope", ["created"])[0]),
                     "user": my_display_name(),
                 }))
