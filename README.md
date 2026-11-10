@@ -59,6 +59,7 @@ Open the **CE Board** shortcut.
 | See the severity at a glance | A coloured badge next to the state, when the item has one |
 | Comment | Expand the row, type in the comment box, **Save** |
 | Read the discussion | Newest comment first; it briefly highlights so you spot it right away |
+| Share a particular comment | Click **Copy link** beside its timestamp to copy its Azure DevOps link; recipients need access to the work item |
 | Add a screenshot to a comment | Paste it straight into the comment box; a thumbnail appears, **Save** posts it |
 | Fix a comment you already posted | Click **edit** on your own comment in Discussion, change it, **Save comment** |
 | Delete a comment you posted | Click **delete** on your own comment; it asks first |
@@ -85,6 +86,8 @@ Open the **CE Board** shortcut.
 | Download an attachment | Expand the row, **Download** next to the file |
 | Add a file | Drag it onto the drop area, or click *browse* |
 | Link a related case | Pick the link type, enter the work item ID, **Add link** |
+| Open a linked work item | Expand **Links**, then click **Open in dashboard** to open just that item in a separate dashboard window |
+| View attachments | Expand **Attachments** to see files, image previews, and upload controls |
 | Link a web page | Choose *Hyperlink (URL)*, paste the URL, **Add link** |
 | Detach a file or link | **Remove** on its row (asks first) |
 | Start the board | The **CE Board** icon on your Desktop or Start Menu |
@@ -143,7 +146,8 @@ sees your password.
   Anything that could load a resource or run code, like a background image,
   is stripped regardless.
 - The comment editor has the same @mention, screenshot paste and table paste
-  as the new-comment box.
+  as the new-comment box. Type `@` to browse the directory, or keep typing to
+  filter people by name.
 - While editing, any screenshots and tables already in that comment are shown
   underneath, so you can see what you are keeping. Click a thumbnail to
   enlarge it. Screenshots are carried over as they are.

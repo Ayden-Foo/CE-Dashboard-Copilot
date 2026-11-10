@@ -16,6 +16,7 @@ per-run nonce on every API call so other local processes cannot drive it.
 """
 
 import argparse
+import base64
 import hashlib
 import hmac
 import json
@@ -36,6 +37,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import azdo_auth
+import open_board
 
 API = "7.1"
 ORG = os.environ.get("AZDO_ORG", "ni")
@@ -257,13 +259,15 @@ def list_items(open_only=True, match="both", top=200, closed_only=False):
     } for it in items]
 
 
-def type_states(work_item_type):
-    if work_item_type in _states_cache:
-        return _states_cache[work_item_type]
+def type_states(work_item_type, project=None):
+    project = project or PROJECT
+    key = (project, work_item_type)
+    if key in _states_cache:
+        return _states_cache[key]
     data = call("{}/_apis/wit/workitemtypes/{}/states?api-version={}-preview".format(
-        urllib.parse.quote(PROJECT), urllib.parse.quote(work_item_type), API))
+        urllib.parse.quote(project), urllib.parse.quote(work_item_type), API))
     names = [s.get("name") for s in data.get("value", []) if s.get("name")]
-    _states_cache[work_item_type] = names
+    _states_cache[key] = names
     return names
 
 
@@ -350,11 +354,91 @@ def _severity_of(fields):
     return ""
 
 
+_all_people_cache = None
+_all_people_cache_at = 0
+_all_people_lock = threading.Lock()
+
+
+def _all_people():
+    """List Azure DevOps users with the identity GUID required for mentions."""
+    global _all_people_cache, _all_people_cache_at
+    with _all_people_lock:
+        if (_all_people_cache is not None
+                and time.time() - _all_people_cache_at < 3600):
+            return list(_all_people_cache)
+
+        people = {}
+        continuation = ""
+        seen_tokens = set()
+        while True:
+            params = {
+                "subjectTypes": "aad,msa,imp",
+                "api-version": "7.1-preview.1",
+            }
+            if continuation:
+                params["continuationToken"] = continuation
+            url = ("https://vssps.dev.azure.com/{}/_apis/graph/users?{}"
+                   .format(urllib.parse.quote(ORG),
+                           urllib.parse.urlencode(params)))
+            if not azdo_auth.have_credentials():
+                raise ApiError(401, "Not signed in. Use the Sign in button.")
+            try:
+                token = azdo_auth.get_access_token()
+            except SystemExit as exc:
+                raise ApiError(401, "Sign-in required: {}".format(exc))
+            req = urllib.request.Request(
+                url, headers={"Authorization": "Bearer " + token,
+                              "Accept": "application/json"})
+            try:
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    data = json.loads(resp.read().decode("utf-8", "replace"))
+                    continuation = resp.headers.get("X-MS-ContinuationToken", "")
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", "replace")[:300]
+                raise ApiError(exc.code, detail or "Could not list Azure DevOps users.")
+            except urllib.error.URLError as exc:
+                raise ApiError(503, "Network error loading people: {}".format(exc.reason))
+
+            for user in data.get("value") or []:
+                descriptor = user.get("descriptor") or ""
+                encoded_id = descriptor.split(".", 1)[-1]
+                try:
+                    identity_id = base64.urlsafe_b64decode(
+                        encoded_id + "=" * (-len(encoded_id) % 4)
+                    ).decode("utf-8")
+                except (ValueError, UnicodeDecodeError):
+                    continue
+                if not re.fullmatch(
+                        r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-"
+                        r"[0-9a-fA-F]{12}", identity_id):
+                    continue
+                name = (user.get("displayName") or "").strip()
+                if not name:
+                    continue
+                identity_id = identity_id.lower()
+                people[identity_id] = {
+                    "id": identity_id,
+                    "name": name,
+                    "mail": user.get("mailAddress") or user.get("principalName") or "",
+                }
+
+            if not continuation:
+                break
+            if continuation in seen_tokens:
+                raise ApiError(502, "Azure DevOps returned a repeated user-list page.")
+            seen_tokens.add(continuation)
+
+        _all_people_cache = sorted(
+            people.values(), key=lambda person: person["name"].casefold())
+        _all_people_cache_at = time.time()
+        return list(_all_people_cache)
+
+
 def search_identities(query, limit=8):
-    """Look up people for @mention autocomplete."""
+    """Look up matching people, or all directory users for a bare @."""
     query = (query or "").strip()
-    if len(query) < 2:
-        return []
+    if not query:
+        return _all_people()
     body = {
         "query": query,
         "identityTypes": ["user"],
@@ -658,8 +742,8 @@ def update_item(item_id, changes):
                     "value": html})
     if not ops:
         raise ApiError(400, "Nothing to update.")
-    return call("{}/_apis/wit/workitems/{}?api-version={}".format(
-        urllib.parse.quote(PROJECT), int(item_id), API),
+    return call("_apis/wit/workitems/{}?api-version={}".format(
+        int(item_id), API),
         ops, method="PATCH", patch=True)
 
 
@@ -717,8 +801,8 @@ def upload_attachment(item_id, file_name, blob, comment=""):
 def _add_relation(item_id, rel, url, attributes):
     ops = [{"op": "add", "path": "/relations/-",
             "value": {"rel": rel, "url": url, "attributes": attributes}}]
-    return call("{}/_apis/wit/workitems/{}?api-version={}".format(
-        urllib.parse.quote(PROJECT), int(item_id), API),
+    return call("_apis/wit/workitems/{}?api-version={}".format(
+        int(item_id), API),
         ops, method="PATCH", patch=True)
 
 
@@ -754,8 +838,8 @@ def remove_relation(item_id, url):
     stale page can never remove the wrong relation by index."""
     if not url:
         raise ApiError(400, "Nothing to remove.")
-    item = call("{}/_apis/wit/workitems/{}?api-version={}&$expand=relations".format(
-        urllib.parse.quote(PROJECT), int(item_id), API))
+    item = call("_apis/wit/workitems/{}?api-version={}&$expand=relations".format(
+        int(item_id), API))
     matches = [i for i, r in enumerate(item.get("relations") or [])
                if (r.get("url") or "") == url]
     if not matches:
@@ -765,8 +849,8 @@ def remove_relation(item_id, url):
                             "Azure DevOps.")
     ops = [{"op": "test", "path": "/rev", "value": item.get("rev")},
            {"op": "remove", "path": "/relations/{}".format(matches[0])}]
-    return call("{}/_apis/wit/workitems/{}?api-version={}".format(
-        urllib.parse.quote(PROJECT), int(item_id), API),
+    return call("_apis/wit/workitems/{}?api-version={}".format(
+        int(item_id), API),
         ops, method="PATCH", patch=True)
 
 
@@ -804,8 +888,8 @@ def comment_mentions(raw_html):
 
 def item_detail(item_id):
     """Full record for one work item: fields, description and its comments."""
-    item = call("{}/_apis/wit/workitems/{}?api-version={}&$expand=all".format(
-        urllib.parse.quote(PROJECT), int(item_id), API))
+    item = call("_apis/wit/workitems/{}?api-version={}&$expand=all".format(
+        int(item_id), API))
     f = item.get("fields", {})
     # A followed item can live in another project, and the comments endpoint
     # is project-scoped, so use the item's own project rather than ours.
@@ -1539,7 +1623,7 @@ def _annotate_links(links):
         got = call("_apis/wit/workitemsbatch?api-version={}".format(API), {
             "ids": [int(i) for i in ids[:200]],
             "fields": ["System.Id", "System.Title", "System.State",
-                       "System.WorkItemType"],
+                       "System.WorkItemType", "System.TeamProject"],
         })
     except ApiError:
         return
@@ -1551,6 +1635,10 @@ def _annotate_links(links):
                                             f.get("System.Title", ""))
             link["state"] = f.get("System.State", "")
             link["type"] = f.get("System.WorkItemType", "")
+            link["webUrl"] = "https://dev.azure.com/{}/{}/_workitems/edit/{}".format(
+                urllib.parse.quote(ORG),
+                urllib.parse.quote(f.get("System.TeamProject") or PROJECT),
+                link["target"])
 
 
 def search_items(query="", include_closed=True, top=100, scope="created",
@@ -1562,10 +1650,12 @@ def search_items(query="", include_closed=True, top=100, scope="created",
     query = (query or "").strip()
     if query.isdigit():
         try:
-            item = call("{}/_apis/wit/workitems/{}?api-version={}".format(
-                urllib.parse.quote(PROJECT), int(query), API))
-        except ApiError:
-            return []
+            item = call("_apis/wit/workitems/{}?api-version={}".format(
+                int(query), API))
+        except ApiError as exc:
+            if exc.status == 404:
+                return []
+            raise
         f = item.get("fields", {})
         if closed_only and f.get("System.State") not in ("Closed", "Removed", "Done"):
             return []
@@ -1578,8 +1668,11 @@ def search_items(query="", include_closed=True, top=100, scope="created",
             "createdBy": identity_name(f.get("System.CreatedBy")),
             "changedDate": f.get("System.ChangedDate", ""),
             "tags": f.get("System.Tags", ""),
+            "severity": _severity_of(f),
+            "project": f.get("System.TeamProject", ""),
             "url": "https://dev.azure.com/{}/{}/_workitems/edit/{}".format(
-                ORG, PROJECT, item.get("id")),
+                ORG, urllib.parse.quote(f.get("System.TeamProject") or PROJECT),
+                item.get("id")),
         }]
 
     display = my_display_name()
@@ -2498,10 +2591,10 @@ PAGE = r"""<!doctype html>
  #aiPanel header{background:linear-gradient(110deg,#e0f2fe,#ecfdf5);position:static;box-shadow:none;padding:12px 14px}
  #aiPanel header h1:before{content:none}
  .sev{border-radius:999px;font-weight:600}
- .case-links{border:1px solid #cbd5e1;border-radius:10px;margin:12px 0;background:#fff}
- .case-links summary{padding:10px 12px;cursor:pointer;color:#075985;font-weight:600}
- .case-links summary:focus-visible{outline:2px solid #0d9488;outline-offset:2px}
- .case-links .links-body{padding:0 12px 12px}
+ .case-links,.case-attachments{border:1px solid #cbd5e1;border-radius:10px;margin:12px 0;background:#fff}
+ .case-links summary,.case-attachments summary{padding:10px 12px;cursor:pointer;color:#075985;font-weight:600}
+ .case-links summary:focus-visible,.case-attachments summary:focus-visible{outline:2px solid #0d9488;outline-offset:2px}
+ .case-links .links-body,.case-attachments .attachments-body{padding:0 12px 12px}
  .thread{max-height:65vh;max-height:clamp(320px,65vh,900px)}
  ::-webkit-scrollbar{width:10px;height:10px}
  ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:8px;border:2px solid transparent;background-clip:padding-box}
@@ -2602,6 +2695,7 @@ const api = (p, opt = {}) => fetch(p, {
 const esc = s => (s || "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 let items = [];
 let scopeUsed = "created";
+const focusedItem = new URLSearchParams(location.search).get("item") || "";
 
 // Severity reads like "1 - High", and the wording differs between work item
 // types, so the colour comes from the word rather than the number.
@@ -2613,11 +2707,8 @@ function sevClass(value) {
   return "";
 }
 
-function render() {
-  const el = document.getElementById("list");
-  if (!items.length) { el.className = "empty"; el.textContent = "No work items found."; return; }
-  el.className = "";
-  el.innerHTML = items.map(w => `
+function renderCard(w) {
+  return `
     <div class="card" data-id="${w.id}">
       <div class="row" onclick="toggle(${w.id})">
         <span class="id">${w.id}</span>
@@ -2652,7 +2743,14 @@ function render() {
           <span class="msg" id="m${w.id}"></span>
         </div>
       </div>
-    </div>`).join("");
+    </div>`;
+}
+
+function render() {
+  const el = document.getElementById("list");
+  if (!items.length) { el.className = "empty"; el.textContent = "No work items found."; return; }
+  el.className = "";
+  el.innerHTML = items.map(renderCard).join("");
 }
 
 async function editTitle(id) {
@@ -2673,7 +2771,8 @@ async function toggle(id, force) {
   if (!sel.options.length) {
     sel.innerHTML = `<option>${esc(w.state)}</option>`;
     try {
-      const d = await api("/api/states?type=" + encodeURIComponent(w.type));
+      const d = await api("/api/states?type=" + encodeURIComponent(w.type)
+                          + "&project=" + encodeURIComponent(w.project || PROJECT));
       sel.innerHTML = d.states.map(s =>
         `<option${s === w.state ? " selected" : ""}>${esc(s)}</option>`).join("");
     } catch (e) { /* keep the current state as the only option */ }
@@ -2985,6 +3084,18 @@ async function copyAiPrompt(id) {
   }
 }
 
+async function copyCommentLink(id, cid, button) {
+  const url = new URL(detailCache[id].item.url);
+  url.searchParams.set("discussionId", cid);
+  try {
+    await navigator.clipboard.writeText(url.href);
+    button.textContent = "Copied!";
+    setTimeout(() => { button.textContent = "Copy link"; }, 2500);
+  } catch (e) {
+    prompt("Clipboard unavailable. Copy this comment link:", url.href);
+  }
+}
+
 function openAiPanel() {
   document.body.classList.add("copilot-open");
   document.getElementById("aiPanel").classList.remove("closed");
@@ -3059,6 +3170,7 @@ async function loadDetail(id) {
   const box = document.getElementById("d" + id);
   if (!box) return;
   const linksOpen = !!box.querySelector(".case-links[open]");
+  const attachmentsOpen = !!box.querySelector(".case-attachments[open]");
   box.textContent = "Loading details...";
   try {
     const d = await api("/api/detail?id=" + id);
@@ -3077,7 +3189,10 @@ async function loadDetail(id) {
     const thread = d.comments.length
       ? d.comments.map((c, i) => `<div class="cm${i === 0 ? " latest" : ""}" id="cm${id}-${c.id}"><span class="meta">${esc(c.author)} &middot; ${
             esc((c.at || "").slice(0, 16).replace("T", " "))}${
-            c.edited ? " &middot; edited" : ""}${
+            c.edited ? " &middot; edited" : ""}
+            &middot; <a href="#"
+              title="Copy link to this comment in Azure DevOps"
+              onclick="event.preventDefault();copyCommentLink(${id},${c.id},this)">Copy link</a>${
             c.mine ? ` &middot; <a href="#" onclick="event.preventDefault();editComment(${id},${c.id})">edit</a>
                      &middot; <a href="#" class="danger" onclick="event.preventDefault();deleteComment(${id},${c.id})">delete</a>` : ""
           }</span><div class="rich">${
@@ -3098,7 +3213,9 @@ async function loadDetail(id) {
        <a class="fdl" href="${esc(a.download)}" download="${esc(a.name)}">Download</a>
        <button class="link danger" onclick="unlink(${id}, ${JSON.stringify(a.url).replace(/"/g, "&quot;")}, 'file')">Remove</button></div>`).join("");
     const filesBlock =
-      `<div class="k">Attachments (${files.length})</div>
+      `<details class="case-attachments"${attachmentsOpen ? " open" : ""}>
+       <summary>Attachments (${files.length})</summary>
+       <div class="attachments-body">${gallery}
        <div class="files">${rows || '<span class="meta">No files attached.</span>'}</div>
        <div class="drop" id="dz${id}" ondragover="event.preventDefault();this.classList.add('over')"
             ondragleave="this.classList.remove('over')"
@@ -3106,16 +3223,20 @@ async function loadDetail(id) {
          Drag files here, or <label class="pick">browse<input type="file" multiple
            style="display:none" onchange="uploadFiles(${id}, this.files); this.value='';"></label>
          <span class="up" id="up${id}"></span>
-       </div>`;
+       </div></div></details>`;
     const linkRows = (d.links || []).map(l => {
       const href = l.external ? (l.href || "") : (l.webUrl || l.url);
       const badge = l.state ? `<span class="pill">${esc(l.state)}</span>` : "";
+      const dashboardLink = !l.external && /^\d+$/.test(String(l.target || ""))
+        ? `<a href="#" onclick="event.preventDefault();openDashboardWindow(${l.target})"
+             title="Open work item in a separate dashboard window">Open in dashboard</a>`
+        : "";
       const label = href
         ? `<a class="fname" href="${esc(href)}" target="_blank" rel="noopener"
            title="${esc(l.comment || href)}">${esc(l.label)}</a>`
         : `<span class="fname" title="blocked link">${esc(l.label)}</span>`;
       return `<div class="frow"><span class="ltype">${esc(l.kind)}</span>
-        ${label}${badge}
+        ${label}${badge}${dashboardLink}
         <button class="link danger" onclick="unlink(${id}, ${JSON.stringify(l.url).replace(/"/g, "&quot;")}, 'link')">Remove</button></div>`;
     }).join("");
     const linksBlock =
@@ -3152,7 +3273,7 @@ async function loadDetail(id) {
       (body ? `<div class="desc rich">${body}</div>`
             : `<span class="meta">No description yet.</span>`) +
       `</div>` +
-      gallery + filesBlock + linksBlock +
+      filesBlock + linksBlock +
       `<div class="thread"><span class="k">Discussion (${d.comments.length}) &mdash; newest first</span>${thread}</div>`;
     // Comments are newest first, so the newest is already scrolled into
     // view; it also flashes briefly (see .latest) to draw the eye to it.
@@ -3161,19 +3282,38 @@ async function loadDetail(id) {
   } catch (e) { box.innerHTML = `<span class="err">${esc(String(e.message || e))}</span>`; }
 }
 
-async function openItem(id) {
+async function openDashboardWindow(id) {
+  try {
+    await api("/api/open-window", {
+      method: "POST", body: JSON.stringify({id: id})
+    });
+  } catch (e) {
+    alert("Could not open the dashboard window: " + String(e.message || e));
+  }
+}
+
+async function openItem(id, parentId) {
   // Deep link / notification click: pull the item in even when the current
   // filter would exclude it (e.g. a closed case).
   if (!items.find(x => x.id === id)) {
     try {
       const d = await api("/api/search?q=" + id);
-      if (!d.items.length) return;
-      items = d.items; render();
-    } catch (e) { return; }
+      if (!d.items.length) throw new Error("Work item #" + id + " was not found or is not accessible.");
+      if (!items.find(x => x.id === id)) {
+        items.push(d.items[0]);
+        const list = document.getElementById("list");
+        if (list.className === "empty") { list.className = ""; list.textContent = ""; }
+        const parent = parentId && document.querySelector(`.card[data-id="${parentId}"]`);
+        (parent || list).insertAdjacentHTML(parent ? "afterend" : "beforeend", renderCard(d.items[0]));
+      }
+    } catch (e) {
+      alert(String(e.message || e));
+      return;
+    }
   }
   const card = document.querySelector(`.card[data-id="${id}"]`);
   if (card) card.scrollIntoView({block: "center"});
-  toggle(id, true);
+  if (card && !card.querySelector(".edit.open")) await toggle(id, true);
 }
 
 // Screenshots and tables pasted into a comment, per box, pending the next Save.
@@ -3420,8 +3560,24 @@ async function save(id) {
     pasted[id] = [];
     tabled[id] = [];
     renderPastes(id);
-    await load(true);
-    openItem(id);
+    try {
+      const refreshed = await api("/api/search?q=" + id);
+      if (!refreshed.items.length) throw new Error("Work item could not be reloaded.");
+      const updated = refreshed.items[0];
+      Object.assign(w, updated);
+      const card = document.querySelector(`.card[data-id="${id}"]`);
+      if (card) {
+        const temp = document.createElement("div");
+        temp.innerHTML = renderCard(updated);
+        card.querySelector(".row").replaceWith(temp.querySelector(".row"));
+        document.getElementById("t" + id).value = updated.title || "";
+        document.getElementById("a" + id).value = updated.assignedTo || "";
+      }
+      await loadDetail(id);
+    } catch (e) {
+      msg.className = "msg err";
+      msg.textContent = "Saved, but the case could not be refreshed: " + String(e.message || e);
+    }
   } catch (e) { msg.className = "msg err"; msg.textContent = String(e.message || e); }
   btn.disabled = false;
 }
@@ -3720,17 +3876,29 @@ try { setCH(localStorage.getItem(CH_KEY)); } catch (e) { /* ignore */ }
 async function onComment(id) {
   const box = document.getElementById("c" + id);
   const q = mentionQuery(box);
-  if (!q || q.text.trim().length < 2) return hideMentions(id);
+  if (!q) return hideMentions(id);
+  const menu = document.getElementById("mb" + id);
+  if (!menu) return;
+  menu.innerHTML = `<div class="mrow"><span>Loading people...</span></div>`;
+  menu.classList.add("show");
   try {
     const d = await api("/api/people?q=" + encodeURIComponent(q.text.trim()));
     if (!d.people.length) return hideMentions(id);
     // The caret may have moved on while the lookup was in flight.
     const still = mentionQuery(box);
-    if (!still || still.start !== q.start || still.node !== q.node) return;
+    if (!still || still.start !== q.start || still.node !== q.node
+        || still.text.trim() !== q.text.trim()) return;
     mState = {id, node: q.node, start: q.start, end: still.end,
               people: d.people, active: 0};
     drawMentions();
-  } catch (e) { hideMentions(id); }
+  } catch (e) {
+    const still = mentionQuery(box);
+    if (still && still.start === q.start && still.node === q.node
+        && still.text.trim() === q.text.trim()) {
+      menu.innerHTML = `<div class="mrow"><span>${esc(e.message || e)}</span></div>`;
+      menu.classList.add("show");
+    }
+  }
 }
 
 function drawMentions() {
@@ -3786,6 +3954,16 @@ async function load(quiet) {
   const el = document.getElementById("list");
   if (!quiet) { el.className = "empty"; el.textContent = "Loading..."; }
   try {
+    if (focusedItem) {
+      if (!/^[1-9]\d*$/.test(focusedItem)) throw new Error("Invalid work item ID.");
+      const d = await api("/api/search?q=" + encodeURIComponent(focusedItem));
+      if (!d.items.length) throw new Error("Work item #" + focusedItem + " was not found or is not accessible.");
+      items = d.items;
+      document.getElementById("who").textContent = d.user || "";
+      render();
+      await openItem(Number(focusedItem));
+      return;
+    }
     const q = document.getElementById("q").value.trim();
     const inc = document.getElementById("incClosed").checked ? "1" : "0";
     const scope = document.getElementById("scope").value;
@@ -3879,6 +4057,14 @@ document.getElementById("signinBtn").onclick = async () => {
 };
 
 function start() {
+  if (focusedItem) {
+    document.querySelector("#app .bar").style.display = "none";
+    document.querySelector("header label").style.display = "none";
+    document.querySelector("header h1").textContent = "Work item #" + focusedItem;
+    document.title = "Work item #" + focusedItem + " - CE Dashboard";
+    load();
+    return;
+  }
   load().then(() => {
     const id = parseInt(location.hash.slice(1), 10);
     if (id) openItem(id);
@@ -3888,6 +4074,7 @@ function start() {
 }
 
 window.addEventListener("hashchange", () => {
+  if (focusedItem) return;
   const id = parseInt(location.hash.slice(1), 10);
   if (id) openItem(id);
 });
@@ -4013,7 +4200,8 @@ class Handler(BaseHTTPRequestHandler):
                 }))
             if url.path == "/api/states":
                 wit = qs.get("type", [""])[0]
-                return self._send(200, json.dumps({"states": type_states(wit)}))
+                return self._send(200, json.dumps({
+                    "states": type_states(wit, qs.get("project", [""])[0])}))
             if url.path == "/api/search":
                 return self._send(200, json.dumps({
                     "items": search_items(
@@ -4066,6 +4254,15 @@ class Handler(BaseHTTPRequestHandler):
                     item_id, qs.get("name", ["attachment"])[0], blob,
                     qs.get("comment", [""])[0])))
             payload = json.loads(self.rfile.read(length) or b"{}")
+            if url.path == "/api/open-window":
+                item_id = str(payload.get("id", ""))
+                if not item_id.isdigit() or int(item_id) <= 0:
+                    raise ApiError(400, "Bad work item id.")
+                window_url = "http://127.0.0.1:{}/{}/?item={}".format(
+                    self.server.server_address[1], NONCE, int(item_id))
+                if not open_board.open_window(window_url):
+                    raise ApiError(503, "No supported dashboard browser is available.")
+                return self._send(200, json.dumps({"ok": True}))
             if url.path == "/api/link":
                 item_id = str(payload.get("id", ""))
                 if not item_id.isdigit():
