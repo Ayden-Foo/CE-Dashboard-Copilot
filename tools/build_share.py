@@ -29,8 +29,16 @@ NOTE = """CE Board
 2. Double-click Install.cmd.
 3. Click Sign in on the page and use your Microsoft account.
 
-Python is included; nothing else needs installing. Use the CE Board shortcut
-on your Desktop afterwards.
+Python is included. Use the CE Board shortcut on your Desktop afterwards.
+
+If your organisation blocks device-code sign-in, install the official
+Microsoft Azure CLI (2.61.0 or newer) and restart the dashboard:
+    winget install --exact --id Microsoft.AzureCLI
+Sign in then opens Windows account sign-in. Your organisation's access
+policies still apply. Keep Azure CLI installed for access-token renewal.
+
+Spellcheck: right-click a misspelled word for browser suggestions. Availability
+and language depend on your browser's spellcheck settings.
 """
 
 

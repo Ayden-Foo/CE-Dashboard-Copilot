@@ -27,8 +27,9 @@ and applies to both the default list and scoped searches.
 2. Double-click **`Install.cmd`**.
 3. Confirm your Azure DevOps organisation and project when prompted
    (defaults: `ni` / `DevCentral`).
-4. The board opens. Click **Sign in**, enter the code shown on the Microsoft
-   page, and you are done.
+4. The board opens. Click **Sign in** and choose your work account in the Windows
+   sign-in window if Azure CLI is installed. Otherwise enter the device code
+   shown on the Microsoft page.
 
 You now have a **CE Board** shortcut on your Desktop and in the Start Menu, and
 the board starts automatically whenever you sign in to Windows.
@@ -43,8 +44,19 @@ removes it completely.
 If your network blocks python.org, ask whoever shared this tool for the
 **offline** package, which already contains the `runtime` folder.
 
-Requirements: Windows 10 or 11. Nothing else — no `pip install`, no Node.js,
-no Azure CLI, no admin rights, no Personal Access Token.
+Base requirements: Windows 10 or 11. No `pip install`, Node.js, or Personal
+Access Token. Azure CLI is optional unless device-code sign-in is blocked.
+
+If your organisation blocks device-code authentication, install the optional
+official **Microsoft Azure CLI** (`winget install --exact --id Microsoft.AzureCLI`)
+and restart the dashboard. Sign in then uses Windows account broker (WAM) on
+Windows, or Azure CLI's browser login. Organisation access policies still apply;
+this is not a bypass and may require IT approval. The dashboard requests only
+an Azure DevOps access token, not changes to Azure resources. Azure CLI manages
+its own sign-in cache; removing the dashboard cache does not sign out Azure CLI.
+Keep Azure CLI installed when using Windows sign-in: the dashboard also uses
+it to renew access tokens after they expire. Use Azure CLI 2.61.0 or newer for
+Windows broker support.
 
 ## Daily use
 
@@ -209,6 +221,10 @@ sees your password.
 - The box is a **formatted editor**: bold, italic, underline, highlight,
   bulleted and numbered lists, and indenting with `Tab`. What you see in the
   box is what gets saved.
+- Browser spellcheck is enabled for titles, editor text, and table cells.
+  Right-click a misspelled word for suggestions; availability and language
+  depend on your browser's spellcheck settings. Use the link toolbar button
+  to insert links, or right-click an existing link to edit or remove it.
 - Only that short list of formatting is kept, because it is what Azure DevOps
   renders reliably. Highlight is one fixed yellow rather than a colour picker.
   Anything else you can get into the box -- a colour, a font, a link, a size --

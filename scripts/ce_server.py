@@ -2613,8 +2613,9 @@ PAGE = r"""<!doctype html>
 </header>
 <main>
  <div id="signin"><h2>Sign in to Azure DevOps</h2>
-   <p>This dashboard needs a one-time Microsoft sign-in. No password or token is
-      stored here &mdash; only a refresh token in your own user profile.</p>
+   <p>Sign in with your work account. With Azure CLI installed, Windows account
+      sign-in opens; otherwise use the Microsoft device code. Credentials stay
+      in your own user profile, not in the shared dashboard folder.</p>
    <div id="signinBody"><button id="signinBtn">Sign in</button></div>
  </div>
  <div id="app">
@@ -2644,7 +2645,7 @@ PAGE = r"""<!doctype html>
     <label>Web address</label>
     <input id="linkUrl" placeholder="https://">
     <label>Text to display</label>
-    <input id="linkText" placeholder="Link text">
+    <input id="linkText" placeholder="Link text" spellcheck="true">
     <div class="acts">
       <button class="sec danger rm" type="button" id="linkRemove" style="display:none">Remove link</button>
       <button class="sec" type="button" id="linkCancel">Cancel</button>
@@ -2723,7 +2724,7 @@ function renderCard(w) {
           scopeUsed !== "created" && w.createdBy ? `<i>by ${esc(w.createdBy)}</i>` : ""}</span>
       </div>
       <div class="edit" id="e${w.id}">
-        <label>Title</label><input id="t${w.id}" value="${esc(w.title)}">
+        <label>Title</label><input id="t${w.id}" value="${esc(w.title)}" spellcheck="true">
         <div class="grid">
           <div><label>State</label><select id="s${w.id}"></select></div>
           <div><label>Assigned to (email, blank to unassign)</label>
@@ -3375,7 +3376,7 @@ function drawTable(gid) {
   if (st.row >= rows.length) st.row = rows.length - 1;
   rows.forEach((tr, ri) => Array.from(tr.cells).forEach((cell, ci) => {
     cell.contentEditable = "true";
-    cell.spellcheck = false;
+    cell.spellcheck = true;
     cell.dataset.was = cell.innerText;
     cell.onfocus = () => { st.row = ri; st.col = ci; markCell(gid); };
     cell.onblur = () => {
@@ -3743,10 +3744,8 @@ document.getElementById("linkModal").addEventListener("mousedown", e => {
 document.getElementById("linkUrl").addEventListener("keydown", e => { if (e.key === "Enter") saveLinkModal(); });
 document.getElementById("linkText").addEventListener("keydown", e => { if (e.key === "Enter") saveLinkModal(); });
 
-// Right-click inside any comment/description editor: a link under the
-// cursor offers Edit/Remove, otherwise (or with a selection) it offers
-// Insert -- a small custom menu, since a real context-menu entry cannot be
-// added to the browser's own menu.
+// Keep the browser's context menu on text for spelling suggestions; links
+// retain their custom Edit/Remove menu.
 let ctxState = null; // {key, existing, savedRange}
 
 function showLinkCtx(x, y, key, existing, savedRange) {
@@ -3765,10 +3764,11 @@ function hideLinkCtx() { document.getElementById("linkCtx").classList.remove("sh
 document.addEventListener("contextmenu", e => {
   const box = e.target.closest ? e.target.closest(".ctext") : null;
   if (!box) { hideLinkCtx(); return; }
+  const existing = e.target.closest("a");
+  if (!existing || !box.contains(existing)) { hideLinkCtx(); return; }
   e.preventDefault();
   const key = box.id.slice(1);
-  const existing = linkAt(box);
-  showLinkCtx(e.clientX, e.clientY, key, existing, existing ? null : _saveCaret(box));
+  showLinkCtx(e.clientX, e.clientY, key, existing, null);
 });
 document.addEventListener("mousedown", e => {
   if (!e.target.closest || !e.target.closest("#linkCtx")) hideLinkCtx();
@@ -4026,26 +4026,38 @@ async function boot() {
   if (ok) { start(); } 
 }
 
-document.getElementById("signinBtn").onclick = async () => {
+function signinError(error) {
+  document.getElementById("signinBody").innerHTML =
+    `<p class="err">${esc(String(error.message || error))}</p>
+     <button id="signinBtn">Try sign-in again</button>`;
+  document.getElementById("signinBtn").onclick = beginSignin;
+}
+
+async function beginSignin() {
   const body = document.getElementById("signinBody");
   body.innerHTML = "Starting sign-in...";
   let d;
   try { d = await api("/api/signin", {method: "POST", body: "{}"}); }
-  catch (e) { body.innerHTML = `<span class="err">${esc(String(e.message || e))}</span>`; return; }
-  body.innerHTML =
+  catch (e) { signinError(e); return; }
+  body.innerHTML = d.mode === "azure_cli"
+    ? `<div class="step">Complete the Windows account or browser sign-in that opens.
+       Choose your work account. This page continues automatically.</div>
+       <div class="step" id="sstat">Waiting for Windows sign-in...</div>`
+    :
     `<div class="step">1. Open <a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.url)}</a></div>
      <div class="step">2. Enter this code:</div>
      <div class="code">${esc(d.userCode)}</div>
      <div class="step">3. Sign in with your work account. This page continues automatically.</div>
      <div class="step" id="sstat">Waiting...</div>`;
-  window.open(d.url, "_blank", "noopener");
+  if (d.mode !== "azure_cli") window.open(d.url, "_blank", "noopener");
   const deadline = Date.now() + d.expiresIn * 1000;
   let wait = d.interval * 1000;
   while (Date.now() < deadline) {
     await new Promise(r => setTimeout(r, wait));
     let s;
-    try { s = await api("/api/signin/poll", {method: "POST", body: JSON.stringify({deviceCode: d.deviceCode})}); }
-    catch (e) { document.getElementById("sstat").innerHTML = `<span class="err">${esc(String(e.message || e))}</span>`; return; }
+    try { s = await api("/api/signin/poll", {method: "POST", body: JSON.stringify(
+      d.mode === "azure_cli" ? {loginId: d.loginId} : {deviceCode: d.deviceCode})}); }
+    catch (e) { signinError(e); return; }
     if (s.status === "ok") {
       document.getElementById("signin").classList.remove("show");
       document.getElementById("app").classList.remove("hide");
@@ -4053,8 +4065,9 @@ document.getElementById("signinBtn").onclick = async () => {
     }
     if (s.status === "slow_down") wait += 5000;
   }
-  document.getElementById("sstat").innerHTML = `<span class="err">Sign-in timed out. Try again.</span>`;
-};
+  signinError("Sign-in timed out. Try again.");
+}
+document.getElementById("signinBtn").onclick = beginSignin;
 
 function start() {
   if (focusedItem) {
@@ -4322,15 +4335,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, json.dumps({"ok": True}))
             if url.path == "/api/signin":
                 try:
-                    return self._send(200, json.dumps(azdo_auth.begin_device_code()))
+                    return self._send(200, json.dumps(azdo_auth.begin_signin()))
                 except RuntimeError as exc:
                     raise ApiError(502, str(exc))
             if url.path == "/api/signin/poll":
-                code = payload.get("deviceCode") or ""
-                if not code:
-                    raise ApiError(400, "Missing device code.")
                 try:
-                    state = azdo_auth.poll_device_code(code)
+                    state = azdo_auth.poll_signin(payload)
                 except RuntimeError as exc:
                     raise ApiError(400, str(exc))
                 if state == "ok":
